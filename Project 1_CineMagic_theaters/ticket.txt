@@ -1,0 +1,11 @@
+	CineMagic Theater Ticket
+----------------------------------------------
+Movie: Wish
+Selected Seats: Row 1, Column 1
+		Row 1, Column 3
+		
+----------------------------------------------
+Enjoy your movie!
+
+
+
