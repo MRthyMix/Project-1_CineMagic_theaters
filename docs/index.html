@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CineMagic Theater</title>
+<meta name="description" content="A C++ console movie-theater app from my GTCC programming class, running in the browser: buy tickets, pick seats, order snacks, get a receipt.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Limelight&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: one centered column — lit marquee, a console window, the printed tickets, then notes on the C++ inside. */
+:root {
+  color-scheme: dark;
+  --bg: #140b10;         /* auditorium dark, biased toward the curtain red */
+  --curtain: #4a0f1c;    /* velvet */
+  --bulb: #ffc861;       /* marquee bulbs, the one bright accent */
+  --ink: #efe6dc;
+  --muted: #b9a59b;
+  --line: #3a2229;
+  --term-bar: #1f1f1f;
+  --term-bg: #0c0c0c;    /* Windows console "Campbell" scheme */
+  --term-fg: #cccccc;
+  --term-green: #16c60c;
+  --term-red: #e74856;
+  --paper: #f4ead5;
+  --paper-ink: #2a1a12;
+  --paper-rule: #c9b48f;
+
+  --font-display: "Limelight", "Rockwell", Georgia, serif;
+  --font-body: "Work Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.28) 0 14px, rgba(255,255,255,.025) 14px 30px, rgba(0,0,0,.18) 30px 46px) top / 100% 340px no-repeat,
+    linear-gradient(var(--curtain), var(--bg) 340px) top / 100% 340px no-repeat,
+    var(--bg);
+  color: var(--ink);
+  font: 400 16px/1.6 var(--font-body);
+  padding-inline: 16px;
+  padding-block: 32px 48px;
+}
+main { max-width: 960px; margin: 0 auto; display: grid; gap: 40px; }
+a { color: var(--bulb); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--bulb); outline-offset: 3px; border-radius: 4px; }
+
+/* ---------- Marquee ---------- */
+.marquee {
+  position: relative;
+  padding: 36px 28px 30px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #2a0d15, #1a0a10);
+  box-shadow: 0 0 0 2px #5c3a1a inset, 0 18px 40px rgba(0,0,0,.45);
+  text-align: center;
+}
+.marquee::before {
+  /* a band of bulbs around the edge */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  padding: 12px;
+  background: radial-gradient(circle, var(--bulb) 0 3px, rgba(255,200,97,.25) 3.5px, transparent 6px) 0 0 / 22px 22px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: chase 1.2s steps(2) infinite;
+  pointer-events: none;
+}
+@keyframes chase { to { background-position: 11px 0; } }
+.eyebrow {
+  margin: 0;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  margin: 6px 0 10px;
+  font: 400 clamp(40px, 8vw, 76px)/1.05 var(--font-display);
+  color: var(--bulb);
+  text-shadow: 0 0 18px rgba(255,200,97,.45), 0 0 2px #fff6dc;
+  text-wrap: balance;
+}
+.lede { margin: 0 auto; max-width: 60ch; color: var(--ink); }
+.links { margin-top: 18px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; font-weight: 500; }
+
+/* ---------- Console window ---------- */
+.window {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--term-bg);
+  box-shadow: 0 0 0 1px #2b2b2b, 0 24px 60px rgba(0,0,0,.55);
+  min-width: 0;
+}
+.titlebar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px 8px 14px;
+  background: var(--term-bar);
+  color: var(--term-fg);
+  font: 400 13px/1.2 var(--font-body);
+}
+.titlebar .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.titlebar button {
+  font: 500 13px/1 var(--font-body);
+  color: var(--term-fg); background: #2d2d2d;
+  border: 1px solid #3c3c3c; border-radius: 6px;
+  padding: 7px 12px; cursor: pointer;
+}
+.titlebar button:hover { background: #383838; }
+.wm { display: flex; gap: 14px; color: #8a8a8a; font-size: 12px; user-select: none; }
+
+#screen {
+  height: clamp(420px, 66vh, 640px);
+  overflow: auto;
+  padding: 12px 14px 16px;
+  color: var(--term-fg);
+  font: 400 clamp(10px, calc((100vw - 64px) / 58), 14px)/1.35 var(--font-mono);
+  white-space: pre;
+  tab-size: 8;
+  cursor: text;
+  font-variant-numeric: tabular-nums;
+}
+#out { white-space: pre; }
+#cin {
+  font: inherit; color: var(--term-fg);
+  background: transparent; border: 0; outline: 0;
+  padding: 0; margin: 0;
+  width: 14ch;
+  caret-color: var(--term-fg);
+}
+.open { color: var(--term-green); }
+.taken { color: var(--term-red); }
+.sys { color: #8a8a8a; }
+.again {
+  margin-top: 6px;
+  font: 600 14px/1 var(--font-body);
+  color: #111; background: var(--bulb);
+  border: 0; border-radius: 6px; padding: 9px 14px; cursor: pointer;
+}
+
+.hint { margin: 12px 2px 0; color: var(--muted); font-size: 14px; }
+kbd {
+  font: 400 12px var(--font-mono);
+  padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--line); background: #1e1217; color: var(--ink);
+}
+
+/* ---------- Printed tickets ---------- */
+section h2 {
+  margin: 0 0 14px;
+  font: 400 26px/1.2 var(--font-display);
+  color: var(--ink);
+}
+.file { font: 400 13px var(--font-mono); color: var(--muted); margin-left: 8px; }
+.stubs { display: flex; flex-wrap: wrap; gap: 18px; }
+.stub {
+  position: relative;
+  width: min(100%, 300px);
+  padding: 18px 20px 16px 28px;
+  background: var(--paper);
+  color: var(--paper-ink);
+  border-radius: 6px;
+  /* punched notches on the tear line */
+  -webkit-mask: radial-gradient(circle at 10px 50%, transparent 7px, #000 7.5px);
+          mask: radial-gradient(circle at 10px 50%, transparent 7px, #000 7.5px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
+  animation: print .5s ease-out both;
+}
+.stub::before {
+  content: ""; position: absolute; left: 10px; top: 12px; bottom: 12px;
+  border-left: 2px dashed var(--paper-rule);
+}
+@keyframes print { from { transform: translateY(-8px); opacity: .3; } }
+.stub .brand { font: 400 15px var(--font-display); letter-spacing: .04em; }
+.stub .movie { font: 600 20px/1.25 var(--font-body); margin: 6px 0 8px; }
+.stub dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 14px; }
+.stub dt { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #7a604a; padding-top: 3px; }
+.stub dd { margin: 0; font-family: var(--font-mono); font-size: 13px; }
+.stub .enjoy { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--paper-rule); font-size: 13px; font-style: italic; }
+.empty { color: var(--muted); margin: 0; }
+details { margin-top: 16px; }
+summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details pre {
+  margin: 10px 0 0; padding: 14px 16px; overflow-x: auto;
+  background: var(--term-bg); color: var(--term-fg);
+  border-radius: 8px; font: 400 13px/1.45 var(--font-mono); tab-size: 8;
+}
+
+/* ---------- About ---------- */
+.about { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 28px; }
+.about p { margin: 0; max-width: 62ch; }
+.about ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.about li { min-width: 0; }
+code { font: 400 .88em var(--font-mono); color: var(--bulb); }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee::before, .stub { animation: none; }
+}
+@media (max-width: 520px) {
+  .marquee { padding: 32px 20px 26px; }
+  .wm { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="marquee">
+    <p class="eyebrow">Now showing · C++ final project · GTCC</p>
+    <h1>CineMagic Theater</h1>
+    <p class="lede">A command-line movie theater I wrote in C++: buy tickets, pick your seats, order snacks, and get a receipt. The program is ported to JavaScript here so you can run it in a console window right in your browser.</p>
+    <div class="links">
+      <a href="https://github.com/MRthyMix/Project-1_CineMagic_theaters/blob/master/Project%201_CineMagic_theaters/Project%201_CineMagic_theaters.cpp" target="_blank" rel="noopener">Read the C++ source</a>
+      <a href="https://github.com/MRthyMix/Project-1_CineMagic_theaters" target="_blank" rel="noopener">GitHub repo</a>
+    </div>
+  </header>
+
+  <section aria-label="Program console">
+    <div class="window">
+      <div class="titlebar">
+        <span class="path">C:\CineMagic\CineMagic.exe</span>
+        <button type="button" id="restart">Restart</button>
+        <span class="wm" aria-hidden="true"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></span>
+      </div>
+      <div id="screen" role="log" aria-live="polite"><span id="out"></span><input id="cin" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Type your answer and press Enter"></div>
+    </div>
+    <p class="hint">Click the console, type a number and press <kbd>Enter</kbd>. For a seat, type the row and column with a space, like <kbd>2 4</kbd>. Enter <kbd>0</kbd> to finish a menu.</p>
+  </section>
+
+  <section aria-labelledby="tix-h">
+    <h2 id="tix-h">Your tickets <span class="file">ticket.txt</span></h2>
+    <div class="stubs" id="stubs"><p class="empty">Tickets print here when you check out.</p></div>
+    <details id="rawWrap" hidden>
+      <summary>Show ticket.txt exactly as the program writes it</summary>
+      <pre id="raw"></pre>
+    </details>
+  </section>
+
+  <section class="about" aria-labelledby="about-h">
+    <div>
+      <h2 id="about-h">Inside the program</h2>
+      <p>I built this when I was first learning to code. It runs entirely in the command prompt: menus are drawn with text, choices go through <code>switch</code> statements, and every movie's seats and ticket counts are randomized when the program starts.</p>
+    </div>
+    <ul>
+      <li>A <code>struct Ticket</code> and a <code>vector&lt;Ticket&gt;</code> hold every line of the order, from movie tickets to popcorn.</li>
+      <li>A 3-D array, <code>seats[5][5][6]</code>, tracks open and taken seats for each of the five movies.</li>
+      <li><code>readInt()</code> asks again when someone types letters instead of a number.</li>
+      <li>The receipt adds 7% sales tax, and <code>ofstream</code> writes the tickets to <code>ticket.txt</code>.</li>
+    </ul>
+  </section>
+
+  <footer>Original program in C++. This browser version is a plain-JavaScript port of the same menus, prices and rules.</footer>
+</main>
+
+<script>
+(() => {
+  // ---------- Console plumbing (stands in for cout / cin / Sleep / cls) ----------
+  const screenEl = document.getElementById("screen");
+  const outEl = document.getElementById("out");
+  const cinEl = document.getElementById("cin");
+
+  class Abort extends Error {}
+  let gen = 0;          // bumps on restart so a running program stops
+  let lines = [];       // typed lines not yet read, each an array of tokens (like cin's buffer)
+  let waiter = null;
+  let running = false;
+
+  function scrollDown() { screenEl.scrollTop = screenEl.scrollHeight; }
+  function print(s) { outEl.append(String(s)); scrollDown(); }
+  function println(s = "") { print(s + "\n"); }
+  function printSpan(s, cls) {
+    const span = document.createElement("span");
+    span.className = cls; span.textContent = s;
+    outEl.append(span); scrollDown();
+  }
+  function clearScreen() { outEl.textContent = ""; }
+  function pauseMs(ms) {
+    const g = gen;
+    return new Promise((res, rej) => setTimeout(() => (g === gen ? res() : rej(new Abort())), ms));
+  }
+  function waitForLine() {
+    return new Promise((res, rej) => { waiter = { res, rej }; });
+  }
+  function submitLine(text) {
+    print(text + "\n");
+    lines.push(text.trim().split(/\s+/).filter(Boolean));
+    if (waiter) { const w = waiter; waiter = null; w.res(); }
+  }
+  async function nextTokenLine() {
+    for (;;) {
+      while (lines.length && lines[0].length === 0) lines.shift();
+      if (lines.length) return lines[0];
+      await waitForLine();
+    }
+  }
+  // Same rules as the C++ readInt(): take a whole number, otherwise throw the line away and ask again.
+  async function readInt() {
+    for (;;) {
+      const line = await nextTokenLine();
+      const m = /^[+-]?\d+/.exec(line[0]);
+      if (m) {
+        const rest = line[0].slice(m[0].length);
+        if (rest) line[0] = rest; else line.shift();
+        return parseInt(m[0], 10);
+      }
+      lines.shift(); // cin.clear(); cin.ignore(..., '\n');
+      print("Please enter a number: ");
+    }
+  }
+  async function waitForEnter() {
+    if (lines.length) lines.shift(); // cin.ignore(..., '\n')
+    if (!lines.length) await waitForLine();
+    lines.shift();                   // cin.get()
+  }
+  const money = (x) => x.toFixed(2);
+  const rand = (n) => Math.floor(Math.random() * n);
+
+  // ---------- The program ----------
+  const NUM_MOVIES = 5, NUM_ROWS = 5, NUM_COLS = 6, SALES_TAX_RATE = 0.07;
+  const movieNames = ["The Shift", "Wish", "The Hunger Games(2023)", "Trolls Band Together", "Napoleon"];
+
+  let tickets, total, itemName, itemPrice, ticketsAvailable, seats;
+
+  async function subMenu(menu, prompt, items, invalidMsg) {
+    clearScreen();
+    println("\n\n");
+    menu.forEach((l) => println(l));
+    print(prompt);
+    const choice = await readInt();
+    const item = items[choice - 1];
+    if (!item) { println(invalidMsg); return false; }
+    [itemName, itemPrice] = item;
+    return true;
+  }
+
+  const candy_submenu = () => subMenu([
+    "   |    Select the type of Candy     |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+    "   | 1 - Chocolate bars ...... $1.50 |",
+    "   | 2 - Gummy Bears ......... $1.75 |",
+    "   | 3 - Sour Patch Kids ..... $2.00 |",
+    "   | 4 - Skittles ............ $1.25 |",
+    "   | 5 - M&M's ............... $1.50 |",
+    "   | 6 - Reese's Pieces ...... $1.75 |",
+    "   | 7 - Twizzlers ........... $1.25 |",
+    "   | 8 - Jolly Ranchers ...... $1.50 |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n"
+  ], "   Select the type of Candy: ", [
+    ["Chocolate bars", 1.50], ["Gummy Bears", 1.75], ["Sour Patch Kids", 2.00], ["Skittles", 1.25],
+    ["M&M's", 1.50], ["Reese's Pieces", 1.75], ["Twizzlers", 1.25], ["Jolly Ranchers", 1.50]
+  ], "Invalid candy type selection.");
+
+  const Popcorn_SubMenu = () => subMenu([
+    "   |     Select the size of Popcorn    |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+    "   | 1 - Large Popcorn ........ $3.50  |",
+    "   | 2 - Medium Popcorn ........$2.75  |",
+    "   | 3 - Small Popcorn ........ $2.00  |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n"
+  ], "   Select the size of Popcorn: ", [
+    ["Large Popcorn", 3.50], ["Medium Popcorn", 2.75], ["Small Popcorn", 2.00]
+  ], "Invalid Popcorn type selection.");
+
+  const hamburger_submenu = () => subMenu([
+    "   |   Select the type of Hamburger   |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+    "   | 1 - Classic Hamburger .... $4.50 |",
+    "   | 2 - Cheeseburger ......... $5.00 |",
+    "   | 3 - Bacon Burger ......... $5.50 |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n"
+  ], "   Select the type of Hamburger: ", [
+    ["Classic Hamburger", 4.50], ["Cheeseburger", 5.00], ["Bacon Burger", 5.50]
+  ], "Invalid Hamburger type selection.");
+
+  const fountainsizes_SubMenu = () => subMenu([
+    "   |  Select the size of Drink |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+    "   | 1 - Large ......... $4.50 |",
+    "   | 2 - Medium .........$3.75 |",
+    "   | 3 - Small ......... $2.00 |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n"
+  ], "   Select the size of Drink: ", [
+    ["Large Drink", 4.50], ["Medium Drink", 3.75], ["Small Drink", 2.00]
+  ], "Invalid Drink type selection.");
+
+  const Icee_SubMenu = () => subMenu([
+    "   |     Select the Icee Flavor     |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+    "   | 1 - Cola .............. $3.00  |",
+    "   | 2 - Cherry .............$3.00  |",
+    "   | 3 - Blue Raspberry .... $3.00  |",
+    "   | 4 - Grape ............. $3.00  |",
+    "   | 5 - Lemon-Lime ........ $3.00  |",
+    "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n"
+  ], "   Select the Icee Flavor: ", [
+    ["Cola Icee", 3.00], ["Cherry Icee", 3.00], ["Blue Raspberry Icee", 3.00], ["Grape Icee", 3.00], ["Lemon-Lime Icee", 3.00]
+  ], "Invalid Icee flavor selection.");
+
+  function displayFoodMenu() {
+    clearScreen();
+    [
+      "   |            Snacks              |     |            Foods               |",
+      "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+      "   | 1 - Onion Rings ........ $4.50 |     | 6 - Popcorn .................. |",
+      "   | 2 - Soft Pretzel ....... $2.50 |     | 7 - Hamburger ................ |",
+      "   | 3 - Nachos ............. $3.50 |     | 8 - Chicken Strips ..... $4.40 |",
+      "   | 4 - Candy .................... |     | 9 - Corn Dog ........... $2.50 |",
+      "   | 5 - Mozzarella Sticks .. $5.50 |     | 10 - Hot Dog ........... $4.50 |",
+      "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|     | 11 - 7 inch Pizza ...... $5.00 |",
+      "                                          |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n\n",
+      "   |           Beverages            |",
+      "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|",
+      "   | 12 - Fountain Drink .......... |",
+      "   | 13 - Icee .................... |",
+      "   | 14 - Apple Juice ....... $2.25 |",
+      "   | 15 - Chocolate Milk .... $2.25 |",
+      "   | 16 - Bottled Water ..... $1.00 |",
+      "   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|\n",
+      "   |---------------------------|",
+      "   | 0 - end selection         |",
+      "   |---------------------------|"
+    ].forEach((l) => println(l));
+  }
+
+  // Open a random number of seats (0 to 30) per movie; ticketsAvailable matches the open seats.
+  function initializeSeatingChart() {
+    const totalSeats = NUM_ROWS * NUM_COLS;
+    seats = []; ticketsAvailable = [];
+    for (let m = 0; m < NUM_MOVIES; ++m) {
+      seats.push(Array.from({ length: NUM_ROWS }, () => Array(NUM_COLS).fill(0)));
+      let openSeats = rand(totalSeats + 1);
+      ticketsAvailable[m] = openSeats;
+      while (openSeats > 0) {
+        const r = rand(NUM_ROWS), c = rand(NUM_COLS);
+        if (seats[m][r][c] === 0) { seats[m][r][c] = 1; openSeats--; }
+      }
+    }
+  }
+
+  function displayMovieChoices() {
+    clearScreen();
+    println("   |                                           Movies                                           |");
+    println("   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|");
+    const movies = [
+      "The Shift .......................... Mystery & Thriller, PG-13",
+      "Wish ................................. Comedy,Animation, PG   ",
+      "The Hunger Games(2023)......... Action/Adventure, Drama, PG-13",
+      "Trolls Band Together .................... Kids & Family, PG   ",
+      "Napoleon ......................... Historical Film, War, R    "
+    ];
+    for (let i = 0; i < NUM_MOVIES; i++) {
+      println("   | " + (i + 1) + " - " + movies[i] + " | Available Tickets: " + String(ticketsAvailable[i]).padStart(2) + " |");
+    }
+    println("   |                                                                                            |");
+    println("   |               Adult - $15              Child - $10             Senior - $7                 |");
+    println("   |                                                                                            |");
+    println("   |                                     0 - end selection                                      |");
+    println("   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|");
+  }
+
+  function displaySeatingChart(movie) {
+    println("\nSeating Chart for '" + movieNames[movie] + "' (O = open, X = taken):");
+    let header = "      ";
+    for (let j = 0; j < NUM_COLS; ++j) header += (j + 1) + " ";
+    println(header);
+    for (let i = 0; i < NUM_ROWS; ++i) {
+      print("Row " + (i + 1) + " ");
+      for (let j = 0; j < NUM_COLS; ++j) {
+        if (seats[movie][i][j] === 1) printSpan("O ", "open"); else printSpan("X ", "taken");
+      }
+      println();
+    }
+  }
+
+  function reserveSeat(movie, row, col) {
+    if (seats[movie][row][col] === 1) { seats[movie][row][col] = 0; return true; }
+    return false;
+  }
+
+  async function tixMenu() {
+    initializeSeatingChart();
+    for (;;) {
+      displayMovieChoices();
+      println("\nRunning Total: $" + money(total));
+
+      print("\nEnter the movie number (0 to end selection): ");
+      const movieSelection = await readInt();
+      if (movieSelection === 0) break;
+
+      if (movieSelection < 1 || movieSelection > NUM_MOVIES) {
+        println("Invalid movie selection. Please try again.");
+        await pauseMs(3000);
+        continue;
+      }
+
+      const movie = movieSelection - 1;
+      const movieName = movieNames[movie];
+
+      if (ticketsAvailable[movie] === 0) {
+        println("Sorry, '" + movieName + "' is sold out. Please pick another movie.");
+        await pauseMs(3000);
+        continue;
+      }
+
+      print("\nSelect your age group (1 - Adult, 2 - Child, 3 - Senior): ");
+      const ageGroup = await readInt();
+      if (ageGroup < 1 || ageGroup > 3) {
+        println("Invalid age group selection. Please try again.");
+        await pauseMs(3000);
+        continue;
+      }
+
+      println("\nAvailable seats for '" + movieName + "': " + ticketsAvailable[movie]);
+
+      print("Enter the number of tickets you want to purchase: ");
+      const numTickets = await readInt();
+      if (numTickets < 1) {
+        println("You need to buy at least one ticket. Please try again.");
+        await pauseMs(3000);
+        continue;
+      }
+      if (numTickets > ticketsAvailable[movie]) {
+        println("Sorry, there are not enough tickets available for that movie.");
+        println("Please try again.");
+        await pauseMs(3000);
+        continue;
+      }
+
+      displaySeatingChart(movie);
+
+      const ticket = { itemName: "", quantity: 0, selectedSeats: [], itemPrice: 0, isMovie: false };
+      for (let p = 0; p < numTickets; p++) {
+        print("Ticket " + (p + 1) + ": Enter the row and column for your seat (e.g., 1 2): ");
+        const selectedRow = await readInt();
+        const selectedCol = await readInt();
+        if (selectedRow < 1 || selectedRow > NUM_ROWS || selectedCol < 1 || selectedCol > NUM_COLS) {
+          println("Invalid seat selection. Please try again.");
+          p--; continue;
+        }
+        if (!reserveSeat(movie, selectedRow - 1, selectedCol - 1)) {
+          println("Sorry, the selected seat is already reserved. Please choose another seat.");
+          p--; continue;
+        }
+        ticket.selectedSeats.push([selectedRow, selectedCol]);
+      }
+
+      const [ticketPrice, ageName] = [[15.00, "Adult"], [10.00, "Child"], [7.00, "Senior"]][ageGroup - 1];
+      const movieCost = numTickets * ticketPrice;
+      total += movieCost;
+      ticketsAvailable[movie] -= numTickets;
+
+      Object.assign(ticket, { itemName: movieName, quantity: numTickets, itemPrice: ticketPrice, isMovie: true, ageName });
+      tickets.push(ticket);
+
+      println("\nYou have selected " + numTickets + " " + ageName + " ticket(s) for '" + movieName + "' for a total of $" + money(movieCost));
+      println("\nRunning Total: $" + money(total));
+
+      print("\nWould you like to make another movie selection? (1 - Yes, 0 - No): ");
+      const sel = await readInt();
+      if (sel === 0) break;
+    }
+  }
+
+  const talkOptions = [
+    "What can I get for you? ",
+    "Is there anything else you'd like to order? ",
+    "Are there any other snacks or drinks you'd like to add? ",
+    "Do you have any specific cravings from our menu? ",
+    "Tell me, what's your taste bud's desire today? ",
+    "What's your flavor of the day? ",
+    "Is there a particular treat that catches your eye? ",
+    "Anything special you'd like to indulge in tonight? "
+  ];
+
+  const simpleItems = {
+    1: ["Onion Rings", 4.50], 2: ["Soft Pretzel", 2.50], 3: ["Nachos", 3.50], 5: ["Mozzarella Sticks", 5.50],
+    8: ["Chicken Strips", 4.40], 9: ["Corn Dog", 2.50], 10: ["Hot Dog", 4.50], 11: ["7 inch Pizza", 5.00],
+    14: ["Apple Juice", 2.25], 15: ["Chocolate Milk", 2.25], 16: ["Bottled Water", 1.00]
+  };
+  const subMenus = { 4: candy_submenu, 6: Popcorn_SubMenu, 7: hamburger_submenu, 12: fountainsizes_SubMenu, 13: Icee_SubMenu };
+
+  async function concMenu() {
+    displayFoodMenu();
+    println("\nRunning Total: $" + money(total));
+
+    for (;;) {
+      print("\n" + talkOptions[rand(8)]);
+      const sel = await readInt();
+      if (sel === 0) break;
+
+      let validItem = true;
+      if (simpleItems[sel]) [itemName, itemPrice] = simpleItems[sel];
+      else if (subMenus[sel]) validItem = await subMenus[sel]();
+      else validItem = false;
+
+      if (!validItem) {
+        await pauseMs(1500);
+        displayFoodMenu();
+        println("\nInvalid selection. Please try again.");
+        println("\nRunning Total: $" + money(total));
+        continue;
+      }
+
+      print("How many " + itemName + " would you like to purchase: ");
+      const quantity = await readInt();
+      if (quantity < 1) {
+        displayFoodMenu();
+        println("\nNo " + itemName + " added.");
+        println("\nRunning Total: $" + money(total));
+        continue;
+      }
+
+      const itemTotal = itemPrice * quantity;
+      total += itemTotal;
+      tickets.push({ itemName, quantity, selectedSeats: [], itemPrice, isMovie: false });
+
+      displayFoodMenu();
+      println("\nYou have selected " + quantity + " " + itemName + "(s) for a total of $" + money(itemTotal));
+      println("\nRunning Total: $" + money(total));
+    }
+  }
+
+  function receipt() {
+    const salesTax = total * SALES_TAX_RATE;
+    const finalTotal = total + salesTax;
+    print("\n\n\t\tReceipt Summary\n");
+    print("----------------------------------------------\n");
+    println("Item".padEnd(25) + "Quantity".padEnd(10) + "Price".padEnd(10));
+    for (const t of tickets) {
+      println(t.itemName.padEnd(25) + String(t.quantity).padEnd(10) + money(t.itemPrice).padEnd(10));
+    }
+    print("----------------------------------------------\n");
+    println("Subtotal: $" + money(total));
+    println("Sales Tax (7%): $" + money(salesTax));
+    println("Total (including tax): $" + money(finalTotal));
+  }
+
+  // Writes the same text the C++ puts in ticket.txt, and shows each ticket as a printed stub.
+  function printTicket() {
+    const movieTickets = tickets.filter((t) => t.isMovie);
+    if (!movieTickets.length) return;
+
+    let file = "";
+    for (const t of movieTickets) {
+      file += "\tCineMagic Theater Ticket\n";
+      file += "----------------------------------------------\n";
+      file += "Movie: " + t.itemName + "\n";
+      file += "Selected Seats: ";
+      for (const [r, c] of t.selectedSeats) file += "Row " + r + ", Column " + c + "\n\t\t";
+      file += "\n";
+      file += "----------------------------------------------\n";
+      file += "Enjoy your movie!\n\n\n\n";
+    }
+    renderTickets(movieTickets, file);
+    println("\nTicket(s) printed successfully. Check 'ticket.txt' below the console for details.");
+  }
+
+  const stubsEl = document.getElementById("stubs");
+  const rawWrap = document.getElementById("rawWrap");
+  const rawEl = document.getElementById("raw");
+
+  function renderTickets(list, file) {
+    stubsEl.textContent = "";
+    for (const t of list) {
+      const stub = document.createElement("article");
+      stub.className = "stub";
+      const brand = document.createElement("div"); brand.className = "brand"; brand.textContent = "CineMagic Theater";
+      const movie = document.createElement("div"); movie.className = "movie"; movie.textContent = t.itemName;
+      const dl = document.createElement("dl");
+      const add = (k, v) => {
+        const dt = document.createElement("dt"); dt.textContent = k;
+        const dd = document.createElement("dd"); dd.textContent = v;
+        dl.append(dt, dd);
+      };
+      add("Admit", t.quantity + " " + t.ageName);
+      add("Seats", t.selectedSeats.map(([r, c]) => "Row " + r + ", Col " + c).join("\n"));
+      const enjoy = document.createElement("p"); enjoy.className = "enjoy"; enjoy.textContent = "Enjoy your movie!";
+      stub.append(brand, movie, dl, enjoy);
+      stubsEl.append(stub);
+    }
+    stubsEl.querySelectorAll("dd").forEach((dd) => { dd.style.whiteSpace = "pre-line"; });
+    rawEl.textContent = file;
+    rawWrap.hidden = false;
+  }
+
+  function resetTickets() {
+    stubsEl.innerHTML = '<p class="empty">Tickets print here when you check out.</p>';
+    rawWrap.hidden = true; rawWrap.open = false;
+    rawEl.textContent = "";
+  }
+
+  async function main() {
+    tickets = []; total = 0; itemName = ""; itemPrice = 0;
+    println("\n\t\tWelcome to CineMagic Theater!");
+    await pauseMs(3000);
+    await tixMenu();
+    await concMenu();
+    receipt();
+    printTicket();
+    print("\nPress Enter to continue...");
+    await waitForEnter();
+  }
+
+  function start() {
+    gen++;
+    if (waiter) { const w = waiter; waiter = null; w.rej(new Abort()); }
+    lines = [];
+    clearScreen();
+    resetTickets();
+    cinEl.hidden = false;
+    cinEl.value = "";
+    running = true;
+    const myGen = gen;
+    main().then(() => {
+      if (myGen !== gen) return;
+      running = false;
+      cinEl.hidden = true;
+      printSpan("\n[Process exited with code 0]\n", "sys");
+      const again = document.createElement("button");
+      again.type = "button"; again.className = "again"; again.textContent = "Run it again";
+      again.addEventListener("click", start);
+      outEl.append(again); scrollDown();
+    }).catch((e) => { if (!(e instanceof Abort)) throw e; });
+  }
+
+  cinEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && running) {
+      e.preventDefault();
+      const text = cinEl.value;
+      cinEl.value = "";
+      submitLine(text);
+    }
+  });
+  screenEl.addEventListener("click", () => {
+    if (running && !String(window.getSelection())) cinEl.focus({ preventScroll: true });
+  });
+  document.getElementById("restart").addEventListener("click", () => { start(); cinEl.focus({ preventScroll: true }); });
+
+  start();
+})();
+</script>
+</body>
+</html>
